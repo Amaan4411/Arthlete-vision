@@ -86,11 +86,22 @@ def main():
     - If the sheet is empty, sends an email notification.
     - If it has data, proceeds with the posting logic.
     """
+    print("--- Checking for all required secrets ---")
     required_secrets = ['SHEET_ID', 'EMAIL_FROM', 'EMAIL_TO', 'GMAIL_APP_PASSWORD', 'GOOGLE_CREDENTIALS_JSON', 'LINKEDIN_LI_AT']
-    if any(not os.environ.get(secret) for secret in required_secrets):
-        print("Error: One or more required secrets are not set in the GitHub repository.")
-        print("Please ensure SHEET_ID, EMAIL_FROM, EMAIL_TO, GMAIL_APP_PASSWORD, GOOGLE_CREDENTIALS_JSON, and LINKEDIN_LI_AT are set.")
+    all_secrets_found = True
+
+    for secret in required_secrets:
+        if os.environ.get(secret):
+            print(f"✅ Found secret: {secret}")
+        else:
+            print(f"❌ MISSING secret: {secret}")
+            all_secrets_found = False
+
+    if not all_secrets_found:
+        print("\nError: One or more required secrets are not set in the GitHub repository.")
         sys.exit(1)
+    
+    print("\n--- All secrets found. Proceeding with workflow. ---\n")
 
     print("Fetching data from Google Sheet...")
     # Use read-only scope for the initial check to follow principle of least privilege
