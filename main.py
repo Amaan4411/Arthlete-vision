@@ -1,6 +1,7 @@
 import os
 import smtplib
 import json
+import sys
 from email.mime.text import MIMEText
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -89,7 +90,7 @@ def main():
     if any(not os.environ.get(secret) for secret in required_secrets):
         print("Error: One or more required secrets are not set in the GitHub repository.")
         print("Please ensure SHEET_ID, EMAIL_FROM, EMAIL_TO, GMAIL_APP_PASSWORD, GOOGLE_CREDENTIALS_JSON, and LINKEDIN_LI_AT are set.")
-        return
+        sys.exit(1)
 
     print("Fetching data from Google Sheet...")
     # Use read-only scope for the initial check to follow principle of least privilege
