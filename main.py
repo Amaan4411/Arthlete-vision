@@ -15,6 +15,7 @@ EMAIL_TO = os.environ.get('EMAIL_TO')
 GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD')
 GOOGLE_CREDENTIALS_JSON_STR = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 LINKEDIN_LI_AT = os.environ.get('LINKEDIN_LI_AT') # The 'li_at' cookie for authentication
+LINKEDIN_JSESSIONID = os.environ.get('LINKEDIN_JSESSIONID')
 
 # --- SETUP FUNCTIONS ---
 
@@ -61,7 +62,10 @@ def post_to_linkedin_and_update_sheet(post_content, sheet_creds):
         return
     try:
         print("Authenticating with LinkedIn...")
-        linkedin = Linkedin("", "", cookies={"li_at": LINKEDIN_LI_AT})
+        cookies = {"li_at": LINKEDIN_LI_AT}
+        if LINKEDIN_JSESSIONID:
+            cookies["JSESSIONID"] = LINKEDIN_JSESSIONID
+        linkedin = Linkedin("", "", cookies=cookies)
         print("Posting to LinkedIn...")
         linkedin.create_post(post_content)
         print("Successfully posted to LinkedIn.")
