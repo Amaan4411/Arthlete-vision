@@ -36,6 +36,9 @@ def get_sheet_data(creds):
 
 def send_email_notification():
     """Sends an email using Gmail SMTP if the sheet is empty."""
+    if not EMAIL_FROM or not EMAIL_TO or not GMAIL_APP_PASSWORD:
+        print("Missing email configuration. Cannot send notification.")
+        return
     msg = MIMEText('Your Google Sheet is empty. Please add new content to continue automated posting.')
     msg['Subject'] = 'Action Required: Your Content Sheet is Empty'
     msg['From'] = EMAIL_FROM
@@ -53,19 +56,18 @@ def post_to_linkedin_and_update_sheet(post_content, sheet_creds):
     """
     Posts content to LinkedIn and clears the row in the Google Sheet upon success.
     """
+    if not LINKEDIN_LI_AT:
+        print("Missing LinkedIn li_at cookie. Cannot post to LinkedIn.")
+        return
     try:
         print("Authenticating with LinkedIn...")
-        # The library uses the cookie for auth, email/password are placeholders
-        linkedin = Linkedin(EMAIL_FROM, GMAIL_APP_PASSWORD, cookies=LINKEDIN_LI_AT)
-        
+        linkedin = Linkedin("", "", cookies={"li_at": LINKEDIN_LI_AT})
         print("Posting to LinkedIn...")
         linkedin.create_post(post_content)
         print("Successfully posted to LinkedIn.")
 
         print("Clearing the row from Google Sheet...")
         service = build('sheets', 'v4', credentials=sheet_creds)
-        # An empty body for the clear request clears all values in the range
-        body = {}
         service.spreadsheets().values().clear(
             spreadsheetId=SHEET_ID,
             range='Sheet1!A1:Z1' # Assumes the post is always in the first row
@@ -74,7 +76,6 @@ def post_to_linkedin_and_update_sheet(post_content, sheet_creds):
 
     except Exception as e:
         print(f"An error occurred during the LinkedIn post or sheet update: {e}")
-
 
 # --- MAIN WORKFLOW ---
 
@@ -115,8 +116,10 @@ def main():
     else:
         print("Sheet contains data. Proceeding to post.")
         # The content to post is assumed to be in the first cell of the first row
-        content_to_post = data[0][0]
-        
+        content_to_post = data[0][0] if data[0] and len(data[0]) > 0 else None
+        if not content_to_post:
+            print("No content found in the first cell. Skipping LinkedIn post.")
+            return
         # We need new credentials with write access to be able to clear the row
         write_creds = get_google_creds(scopes=['https://www.googleapis.com/auth/spreadsheets'])
         post_to_linkedin_and_update_sheet(content_to_post, write_creds)
