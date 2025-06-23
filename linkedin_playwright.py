@@ -85,41 +85,40 @@ def post_to_linkedin(text, image_path=None):
         sys.exit(1)
     with sync_playwright() as p:
         try:
-            browser = p.chromium.launch(
+            # Use Firefox instead of Chrome as it's less likely to trigger security checks
+            browser = p.firefox.launch(
                 headless=True,
                 args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--disable-gpu',
-                    '--window-size=1920,1080',
+                    '--width=1920',
+                    '--height=1080'
                 ]
             )
+            
+            # Set up a persistent context to maintain cookies
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+                locale='en-US',
+                timezone_id='America/New_York',
+                geolocation={'latitude': 40.7128, 'longitude': -74.0060},
+                permissions=['geolocation'],
+                accept_downloads=True
             )
+            
+            # Enable more verbose logging
+            context.set_default_timeout(120000)
+            context.set_default_navigation_timeout(120000)
+            
             page = context.new_page()
-            print("Navigating to LinkedIn login page...")
+            print("Navigating to LinkedIn homepage first...")
             
-            # Increase timeouts and add better error handling
-            page.set_default_timeout(120000)  # 120 seconds timeout
-            page.set_default_navigation_timeout(120000)
+            # Start with the homepage, then go to login
+            page.goto("https://www.linkedin.com", wait_until="domcontentloaded")
+            page.wait_for_load_state("networkidle", timeout=30000)
             
-            # Navigate to LinkedIn with retry logic
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    print(f"Attempt {attempt + 1} to load LinkedIn login page...")
-                    page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-                    page.wait_for_load_state("networkidle", timeout=30000)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise Exception(f"Failed to load LinkedIn login page after {max_retries} attempts: {e}")
-                    print(f"Attempt {attempt + 1} failed, retrying in 5 seconds...")
-                    page.wait_for_timeout(5000)  # Wait 5 seconds before retry
+            print("Going to login page...")
+            page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+            page.wait_for_load_state("networkidle", timeout=30000)
             
             # Login with explicit waits and null checks
             print("Filling login credentials...")
@@ -131,29 +130,52 @@ def post_to_linkedin(text, image_path=None):
             if not password_input:
                 raise Exception("Could not find password input field")
             
+            # Type slowly like a human
+            print("Entering email...")
+            email_input.type(LINKEDIN_EMAIL, delay=100)
+            page.wait_for_timeout(1000)
+            
+            print("Entering password...")
+            password_input.type(LINKEDIN_PASSWORD, delay=100)
+            page.wait_for_timeout(1000)
+            
+            print("Clicking sign in...")
             submit_button = page.wait_for_selector('button[type="submit"]', state="visible", timeout=30000)
             if not submit_button:
                 raise Exception("Could not find submit button")
-            
-            email_input.fill(LINKEDIN_EMAIL)
-            password_input.fill(LINKEDIN_PASSWORD)
             submit_button.click()
             
             # Wait for navigation with explicit success criteria
             print("Waiting for successful login...")
-            page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
+            try:
+                page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
+            except Exception as e:
+                current_url = page.url
+                print(f"Navigation failed. Current URL: {current_url}")
+                if "checkpoint" in current_url or "challenge" in current_url:
+                    raise Exception("LinkedIn security check detected. Please try logging in manually first.")
+                raise e
             
-            print("Logged in. Starting post...")
+            page.wait_for_load_state("networkidle", timeout=30000)
+            print("Successfully logged in!")
+            
+            # Small delay before starting the post
+            page.wait_for_timeout(3000)
+            
+            print("Looking for post button...")
             start_post_button = page.wait_for_selector('button[aria-label="Start a post"]', state="visible", timeout=30000)
             if not start_post_button:
                 raise Exception("Could not find 'Start a post' button")
             start_post_button.click()
             
+            print("Waiting for post dialog...")
             textbox = page.wait_for_selector('div[role="textbox"]', state="visible", timeout=30000)
             if not textbox:
                 raise Exception("Could not find post text box")
-            textbox.fill(text)
+            
+            # Type the text slowly like a human
+            print("Typing post content...")
+            textbox.type(text, delay=50)
             
             if image_path and os.path.exists(image_path):
                 print(f"Attaching image: {image_path}")
@@ -173,29 +195,35 @@ def post_to_linkedin(text, image_path=None):
                 if not upload_complete:
                     raise Exception("Image upload failed - could not verify image presence")
             else:
-                print("No image attached.")
+                print("No image to attach")
             
-            # Wait for the post button and click
+            # Wait before posting
+            page.wait_for_timeout(2000)
+            
+            # Look for the post button and click
             print("Looking for post button...")
             post_button = page.wait_for_selector('button[data-control-name="share.post"]', state="visible", timeout=30000)
             if not post_button:
                 raise Exception("Could not find post button")
+            
+            print("Clicking post button...")
             post_button.click()
             
             # Wait for post confirmation
             print("Waiting for post to complete...")
-            page.wait_for_timeout(10000)  # Wait longer for post to complete
-            print("Posted to LinkedIn!")
+            page.wait_for_timeout(10000)
+            print("Posted successfully to LinkedIn!")
             
         except Exception as e:
             print(f"ERROR during LinkedIn automation: {str(e)}")
             if 'page' in locals():
                 print("Current URL:", page.url)
                 try:
+                    print("Saving error screenshot...")
                     page.screenshot(path="error_screenshot.png")
                     print("Error screenshot saved as error_screenshot.png")
-                except:
-                    pass
+                except Exception as screenshot_error:
+                    print(f"Failed to save screenshot: {screenshot_error}")
             raise e
         finally:
             if 'browser' in locals():
