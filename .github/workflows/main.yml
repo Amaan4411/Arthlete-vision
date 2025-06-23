@@ -39,4 +39,12 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
           sleep 3
-          python linkedin_playwright.py 
+          python linkedin_playwright.py
+
+      - name: Upload error screenshot if exists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error_screenshot
+          path: error_screenshot.png
+          if-no-files-found: ignore 
