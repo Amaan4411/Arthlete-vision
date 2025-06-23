@@ -1,0 +1,14 @@
+{
+  "name": "linkedin-puppeteer-stealth",
+  "version": "1.0.0",
+  "main": "linkedin_puppeteer.js",
+  "scripts": {
+    "start": "node linkedin_puppeteer.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.3.8",
+    "puppeteer-extra": "^3.4.3",
+    "puppeteer-extra-plugin-stealth": "^2.11.1",
+    "dotenv": "^16.4.5"
+  }
+} 
