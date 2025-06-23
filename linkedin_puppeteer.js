@@ -17,6 +17,7 @@ const RANGE_NAME = `${SHEET_NAME}!A1:Z1000`;
 const GOOGLE_CREDENTIALS_JSON = process.env.GOOGLE_CREDENTIALS_JSON;
 const POST_SLOT = process.env.POST_SLOT;
 const IMAGES_DIR = path.join(__dirname, 'images');
+const COOKIES_PATH = path.join(__dirname, 'linkedin_cookies.json');
 
 const COLUMN_MAP = {
   morning: ['Morning (1 PM)', 'Morning Image'],
@@ -104,6 +105,30 @@ async function getPostFromSheet() {
   return { postText, imagePath };
 }
 
+async function useCookiesIfAvailable(page) {
+  if (fs.existsSync(COOKIES_PATH)) {
+    try {
+      const cookies = JSON.parse(fs.readFileSync(COOKIES_PATH, 'utf8'));
+      await page.setCookie(...cookies);
+      console.log('Loaded cookies from linkedin_cookies.json');
+      await page.goto('https://www.linkedin.com/feed', { waitUntil: 'networkidle2', timeout: 60000 });
+      // Check if logged in by looking for the feed
+      if ((await page.url()).includes('/feed')) {
+        console.log('Logged in with cookies!');
+        return true;
+      } else {
+        console.error('Cookies did not work. Your LinkedIn cookies are expired or invalid. Please refresh your cookies and try again.');
+        process.exit(1);
+      }
+    } catch (e) {
+      console.error('Failed to use cookies:', e);
+      console.error('Your LinkedIn cookies are expired or invalid. Please refresh your cookies and try again.');
+      process.exit(1);
+    }
+  }
+  return false;
+}
+
 async function run() {
   if (!EMAIL || !PASSWORD) {
     console.error('Missing LINKEDIN_EMAIL or LINKEDIN_PASSWORD in environment.');
@@ -122,27 +147,39 @@ async function run() {
   const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
   const page = await browser.newPage();
   try {
-    console.log('Navigating to LinkedIn login...');
-    await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForSelector('input[name="session_key"]', { visible: true, timeout: 30000 });
-    await page.type('input[name="session_key"]', EMAIL, { delay: 120 });
-    await page.type('input[name="session_password"]', PASSWORD, { delay: 120 });
-    await page.waitForTimeout(800);
-    await page.click('button[type="submit"]');
-    console.log('Waiting for login to complete...');
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
-    const url = page.url();
-    if (url.includes('checkpoint') || url.includes('captcha') || url.includes('challenge')) {
-      console.error('LinkedIn triggered a security checkpoint or CAPTCHA.');
-      await page.screenshot({ path: 'error_screenshot.png' });
-      process.exit(1);
+    // Try cookie-based login first
+    const cookiesWorked = await useCookiesIfAvailable(page);
+    if (!cookiesWorked) {
+      // Only try email/password login if cookies file does not exist
+      if (!fs.existsSync(COOKIES_PATH)) {
+        console.log('No linkedin_cookies.json found. Proceeding with email/password login...');
+        // Fallback: normal login
+        console.log('Navigating to LinkedIn login...');
+        await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForSelector('input[name="session_key"]', { visible: true, timeout: 30000 });
+        await page.type('input[name="session_key"]', EMAIL, { delay: 120 });
+        await page.type('input[name="session_password"]', PASSWORD, { delay: 120 });
+        await page.waitForTimeout(800);
+        await page.click('button[type="submit"]');
+        console.log('Waiting for login to complete...');
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+        const url = page.url();
+        if (url.includes('checkpoint') || url.includes('captcha') || url.includes('challenge')) {
+          console.error('LinkedIn triggered a security checkpoint or CAPTCHA.');
+          await page.screenshot({ path: 'error_screenshot.png' });
+          process.exit(1);
+        }
+        if (!url.includes('/feed')) {
+          console.error('Login failed, not redirected to feed.');
+          await page.screenshot({ path: 'error_screenshot.png' });
+          process.exit(1);
+        }
+        console.log('Login successful! Navigating to post...');
+      } else {
+        // Should never reach here, but just in case
+        process.exit(1);
+      }
     }
-    if (!url.includes('/feed')) {
-      console.error('Login failed, not redirected to feed.');
-      await page.screenshot({ path: 'error_screenshot.png' });
-      process.exit(1);
-    }
-    console.log('Login successful! Navigating to post...');
     await page.waitForSelector('button[aria-label="Start a post"]', { visible: true, timeout: 30000 });
     await page.click('button[aria-label="Start a post"]');
     await page.waitForSelector('div[role="textbox"]', { visible: true, timeout: 30000 });

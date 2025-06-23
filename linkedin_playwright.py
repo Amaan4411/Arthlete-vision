@@ -119,6 +119,27 @@ def get_random_geolocation():
     ]
     return random.choice(locations)
 
+def load_cookies_if_available(context, page):
+    cookies_path = os.path.join(os.path.dirname(__file__), 'linkedin_cookies.json')
+    if os.path.exists(cookies_path):
+        try:
+            with open(cookies_path, 'r') as f:
+                cookies = json.load(f)
+            context.add_cookies(cookies)
+            print('Loaded cookies from linkedin_cookies.json')
+            page.goto('https://www.linkedin.com/feed', wait_until='networkidle')
+            if '/feed' in page.url:
+                print('Logged in with cookies!')
+                return True
+            else:
+                print('Cookies did not work. Your LinkedIn cookies are expired or invalid. Please refresh your cookies and try again.')
+                sys.exit(1)
+        except Exception as e:
+            print(f'Failed to use cookies: {e}')
+            print('Your LinkedIn cookies are expired or invalid. Please refresh your cookies and try again.')
+            sys.exit(1)
+    return False
+
 def post_to_linkedin(text, image_path=None):
     if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
         print("ERROR: LINKEDIN_EMAIL and LINKEDIN_PASSWORD must be set in environment variables.")
@@ -163,89 +184,96 @@ def post_to_linkedin(text, image_path=None):
             context.set_default_timeout(120000)
             context.set_default_navigation_timeout(120000)
             page = context.new_page()
-            print("Navigating to LinkedIn homepage first...")
-            page.goto("https://www.linkedin.com", wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle", timeout=30000)
-            print("Going to login page...")
-            page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle", timeout=30000)
-            # Human-like mouse movement
-            page.mouse.move(random.randint(100, 500), random.randint(100, 500), steps=10)
-            print("Filling login credentials...")
-            email_input = page.wait_for_selector('input[name="session_key"]', state="visible", timeout=30000)
-            if not email_input:
-                raise Exception("Could not find email input field")
-            password_input = page.wait_for_selector('input[name="session_password"]', state="visible", timeout=30000)
-            if not password_input:
-                raise Exception("Could not find password input field")
-            print("Entering email...")
-            for c in LINKEDIN_EMAIL:
-                email_input.type(c, delay=random.randint(80, 180))
-            page.wait_for_timeout(random.randint(500, 1500))
-            print("Entering password...")
-            for c in LINKEDIN_PASSWORD:
-                password_input.type(c, delay=random.randint(80, 180))
-            page.wait_for_timeout(random.randint(500, 1500))
-            print("Clicking sign in...")
-            submit_button = page.wait_for_selector('button[type="submit"]', state="visible", timeout=30000)
-            if not submit_button:
-                raise Exception("Could not find submit button")
-            submit_button.click()
-            print("Waiting for successful login...")
-            try:
-                page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
-            except Exception as e:
-                current_url = page.url
-                print(f"Navigation failed. Current URL: {current_url}")
-                if "checkpoint" in current_url or "challenge" in current_url:
-                    raise Exception("LinkedIn security check detected. Please try logging in manually first.")
-                raise e
-            page.wait_for_load_state("networkidle", timeout=30000)
-            print("Successfully logged in!")
-            # Human-like scrolling
-            for _ in range(random.randint(1, 3)):
-                page.mouse.wheel(0, random.randint(100, 400))
-                page.wait_for_timeout(random.randint(500, 1200))
-            page.wait_for_timeout(random.randint(2000, 4000))
-            print("Looking for post button...")
-            start_post_button = page.wait_for_selector('button[aria-label="Start a post"]', state="visible", timeout=30000)
-            if not start_post_button:
-                raise Exception("Could not find 'Start a post' button")
-            start_post_button.click()
-            print("Waiting for post dialog...")
-            textbox = page.wait_for_selector('div[role="textbox"]', state="visible", timeout=30000)
-            if not textbox:
-                raise Exception("Could not find post text box")
-            print("Typing post content...")
-            for c in text:
-                textbox.type(c, delay=random.randint(40, 120))
-            page.wait_for_timeout(random.randint(1000, 2000))
-            if image_path and os.path.exists(image_path):
-                print(f"Attaching image: {image_path}")
-                photo_button = page.wait_for_selector('button[aria-label="Add a photo"]', state="visible", timeout=30000)
-                if not photo_button:
-                    raise Exception("Could not find 'Add a photo' button")
-                photo_button.click()
-                input_file = page.wait_for_selector('input[type="file"]', state="visible", timeout=30000)
-                if not input_file:
-                    raise Exception("Could not find file input element")
-                input_file.set_input_files(image_path)
-                print("Waiting for image upload...")
-                upload_complete = page.wait_for_selector('img[alt="Post image"]', state="visible", timeout=60000)
-                if not upload_complete:
-                    raise Exception("Image upload failed - could not verify image presence")
+            # Try cookie-based login first
+            if load_cookies_if_available(context, page):
+                # Continue to posting logic (skip login form)
+                pass
             else:
-                print("No image to attach")
-            page.wait_for_timeout(random.randint(1000, 2000))
-            print("Looking for post button...")
-            post_button = page.wait_for_selector('button[data-control-name="share.post"]', state="visible", timeout=30000)
-            if not post_button:
-                raise Exception("Could not find post button")
-            print("Clicking post button...")
-            post_button.click()
-            print("Waiting for post to complete...")
-            page.wait_for_timeout(random.randint(8000, 12000))
-            print("Posted successfully to LinkedIn!")
+                # Only try email/password login if cookies file does not exist
+                print("No linkedin_cookies.json found. Proceeding with email/password login...")
+                print("Navigating to LinkedIn homepage first...")
+                page.goto("https://www.linkedin.com", wait_until="domcontentloaded")
+                page.wait_for_load_state("networkidle", timeout=30000)
+                print("Going to login page...")
+                page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+                page.wait_for_load_state("networkidle", timeout=30000)
+                # Human-like mouse movement
+                page.mouse.move(random.randint(100, 500), random.randint(100, 500), steps=10)
+                print("Filling login credentials...")
+                email_input = page.wait_for_selector('input[name="session_key"]', state="visible", timeout=30000)
+                if not email_input:
+                    raise Exception("Could not find email input field")
+                password_input = page.wait_for_selector('input[name="session_password"]', state="visible", timeout=30000)
+                if not password_input:
+                    raise Exception("Could not find password input field")
+                print("Entering email...")
+                for c in LINKEDIN_EMAIL:
+                    email_input.type(c, delay=random.randint(80, 180))
+                page.wait_for_timeout(random.randint(500, 1500))
+                print("Entering password...")
+                for c in LINKEDIN_PASSWORD:
+                    password_input.type(c, delay=random.randint(80, 180))
+                page.wait_for_timeout(random.randint(500, 1500))
+                print("Clicking sign in...")
+                submit_button = page.wait_for_selector('button[type="submit"]', state="visible", timeout=30000)
+                if not submit_button:
+                    raise Exception("Could not find submit button")
+                submit_button.click()
+                print("Waiting for successful login...")
+                try:
+                    page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
+                except Exception as e:
+                    current_url = page.url
+                    print(f"Navigation failed. Current URL: {current_url}")
+                    if "checkpoint" in current_url or "challenge" in current_url:
+                        raise Exception("LinkedIn security check detected. Please try logging in manually first.")
+                    raise e
+                page.wait_for_load_state("networkidle", timeout=30000)
+                print("Successfully logged in!")
+                # Human-like scrolling
+                for _ in range(random.randint(1, 3)):
+                    page.mouse.wheel(0, random.randint(100, 400))
+                    page.wait_for_timeout(random.randint(500, 1200))
+                page.wait_for_timeout(random.randint(2000, 4000))
+                print("Looking for post button...")
+                start_post_button = page.wait_for_selector('button[aria-label="Start a post"]', state="visible", timeout=30000)
+                if not start_post_button:
+                    raise Exception("Could not find 'Start a post' button")
+                start_post_button.click()
+                print("Waiting for post dialog...")
+                textbox = page.wait_for_selector('div[role="textbox"]', state="visible", timeout=30000)
+                if not textbox:
+                    raise Exception("Could not find post text box")
+                print("Typing post content...")
+                for c in text:
+                    textbox.type(c, delay=random.randint(40, 120))
+                page.wait_for_timeout(random.randint(1000, 2000))
+                if image_path and os.path.exists(image_path):
+                    print(f"Attaching image: {image_path}")
+                    photo_button = page.wait_for_selector('button[aria-label="Add a photo"]', state="visible", timeout=30000)
+                    if not photo_button:
+                        raise Exception("Could not find 'Add a photo' button")
+                    photo_button.click()
+                    input_file = page.wait_for_selector('input[type="file"]', state="visible", timeout=30000)
+                    if not input_file:
+                        raise Exception("Could not find file input element")
+                    input_file.set_input_files(image_path)
+                    print("Waiting for image upload...")
+                    upload_complete = page.wait_for_selector('img[alt="Post image"]', state="visible", timeout=60000)
+                    if not upload_complete:
+                        raise Exception("Image upload failed - could not verify image presence")
+                else:
+                    print("No image to attach")
+                page.wait_for_timeout(random.randint(1000, 2000))
+                print("Looking for post button...")
+                post_button = page.wait_for_selector('button[data-control-name="share.post"]', state="visible", timeout=30000)
+                if not post_button:
+                    raise Exception("Could not find post button")
+                print("Clicking post button...")
+                post_button.click()
+                print("Waiting for post to complete...")
+                page.wait_for_timeout(random.randint(8000, 12000))
+                print("Posted successfully to LinkedIn!")
         except Exception as e:
             print(f"ERROR during LinkedIn automation: {str(e)}")
             if 'page' in locals():
