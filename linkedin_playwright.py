@@ -10,7 +10,8 @@ from playwright.sync_api import sync_playwright
 
 # --- CONFIGURATION ---
 SHEET_ID = os.environ.get('SHEET_ID')
-RANGE_NAME = 'Sheet1!A1:Z1000'
+SHEET_NAME = os.environ.get('SHEET_NAME', 'Sheet1')  # Allow sheet name override
+RANGE_NAME = f'{SHEET_NAME}!A1:Z1000'
 LINKEDIN_EMAIL = os.environ.get('LINKEDIN_EMAIL')
 LINKEDIN_PASSWORD = os.environ.get('LINKEDIN_PASSWORD')
 POST_SLOT = os.environ.get('POST_SLOT')  # For testing: 'morning', 'afternoon', 'evening'
@@ -32,6 +33,7 @@ def get_google_creds(scopes):
     )
 
 def get_sheet_data(creds):
+    print(f"Fetching data from Google Sheet: {SHEET_ID}, Range: {RANGE_NAME}")
     service = build('sheets', 'v4', credentials=creds)
     sheet = service.spreadsheets()
     result = sheet.values().get(spreadsheetId=SHEET_ID, range=RANGE_NAME).execute()
@@ -39,6 +41,7 @@ def get_sheet_data(creds):
 
 def get_time_slot():
     if POST_SLOT:
+        print(f"POST_SLOT override detected: {POST_SLOT}")
         return POST_SLOT.lower()
     now = datetime.now().time()
     if now.hour == 13:
@@ -48,6 +51,7 @@ def get_time_slot():
     elif now.hour == 20:
         return 'evening'
     else:
+        print("Not a scheduled slot hour, defaulting to 'morning' for testing.")
         return 'morning'  # Default for testing
 
 def get_image_path(image_cell):
@@ -70,24 +74,33 @@ def get_image_path(image_cell):
     # Otherwise, treat as local filename
     local_path = os.path.join(IMAGES_DIR, image_cell)
     if os.path.exists(local_path):
+        print(f"Found local image: {local_path}")
         return local_path
-    print(f"Image file '{local_path}' not found. Posting text only.")
+    print(f"Image file '{local_path}' not found in images/. Posting text only.")
     return None
 
 def post_to_linkedin(text, image_path=None):
+    if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
+        print("ERROR: LINKEDIN_EMAIL and LINKEDIN_PASSWORD must be set in environment variables.")
+        sys.exit(1)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
+        print("Navigating to LinkedIn login page...")
         page.goto("https://www.linkedin.com/login")
         page.fill('input[name="session_key"]', LINKEDIN_EMAIL)
         page.fill('input[name="session_password"]', LINKEDIN_PASSWORD)
         page.click('button[type="submit"]')
         page.wait_for_url("https://www.linkedin.com/feed/")
+        print("Logged in. Starting post...")
         page.click('button[aria-label="Start a post"]')
         page.fill('div[role="textbox"]', text)
         if image_path and os.path.exists(image_path):
+            print(f"Attaching image: {image_path}")
             page.click('button[aria-label="Add a photo"]')
             page.set_input_files('input[type="file"]', image_path)
+        else:
+            print("No image attached.")
         page.click('button[data-control-name="share.post"]')
         print("Posted to LinkedIn!")
         browser.close()
@@ -99,7 +112,6 @@ def post_to_linkedin(text, image_path=None):
                 pass
 
 def main():
-    print("Fetching data from Google Sheet...")
     creds = get_google_creds(scopes=['https://www.googleapis.com/auth/spreadsheets.readonly'])
     data = get_sheet_data(creds)
     if not data or len(data) < 2:
@@ -130,6 +142,8 @@ def main():
     print(f"Posting text: {post_text}")
     if image_path:
         print(f"With image: {image_path}")
+    else:
+        print("No image for this post.")
     post_to_linkedin(post_text, image_path)
 
 if __name__ == '__main__':
