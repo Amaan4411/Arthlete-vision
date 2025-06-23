@@ -84,32 +84,81 @@ def post_to_linkedin(text, image_path=None):
         print("ERROR: LINKEDIN_EMAIL and LINKEDIN_PASSWORD must be set in environment variables.")
         sys.exit(1)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        print("Navigating to LinkedIn login page...")
-        page.goto("https://www.linkedin.com/login")
-        page.fill('input[name="session_key"]', LINKEDIN_EMAIL)
-        page.fill('input[name="session_password"]', LINKEDIN_PASSWORD)
-        page.click('button[type="submit"]')
-        page.wait_for_url("https://www.linkedin.com/feed/")
-        print("Logged in. Starting post...")
-        page.click('button[aria-label="Start a post"]')
-        page.fill('div[role="textbox"]', text)
-        if image_path and os.path.exists(image_path):
-            print(f"Attaching image: {image_path}")
-            page.click('button[aria-label="Add a photo"]')
-            page.set_input_files('input[type="file"]', image_path)
-        else:
-            print("No image attached.")
-        page.click('button[data-control-name="share.post"]')
-        print("Posted to LinkedIn!")
-        browser.close()
-        # Clean up temp file if it was a download
-        if image_path and image_path.startswith(tempfile.gettempdir()):
-            try:
-                os.remove(image_path)
-            except Exception:
-                pass
+        try:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
+            print("Navigating to LinkedIn login page...")
+            
+            # Increase timeouts and add better error handling
+            page.set_default_timeout(60000)  # 60 seconds timeout
+            page.set_default_navigation_timeout(60000)
+            
+            # Navigate to LinkedIn with retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    page.goto("https://www.linkedin.com/login", wait_until="networkidle")
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Failed to load LinkedIn login page after {max_retries} attempts: {e}")
+                    print(f"Attempt {attempt + 1} failed, retrying...")
+                    page.wait_for_timeout(5000)  # Wait 5 seconds before retry
+            
+            # Login with explicit waits
+            page.fill('input[name="session_key"]', LINKEDIN_EMAIL)
+            page.fill('input[name="session_password"]', LINKEDIN_PASSWORD)
+            page.click('button[type="submit"]')
+            
+            # Wait for navigation with explicit success criteria
+            print("Waiting for successful login...")
+            page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
+            page.wait_for_load_state("networkidle")
+            
+            print("Logged in. Starting post...")
+            page.click('button[aria-label="Start a post"]')
+            page.wait_for_selector('div[role="textbox"]', state="visible")
+            page.fill('div[role="textbox"]', text)
+            
+            if image_path and os.path.exists(image_path):
+                print(f"Attaching image: {image_path}")
+                page.click('button[aria-label="Add a photo"]')
+                input_file = page.wait_for_selector('input[type="file"]')
+                if not input_file:
+                    raise Exception("Could not find file input element")
+                input_file.set_input_files(image_path)
+                # Wait for image upload
+                if not page.wait_for_selector('img[alt="Post image"]', timeout=30000):
+                    raise Exception("Image upload failed - could not verify image presence")
+            else:
+                print("No image attached.")
+            
+            # Wait for the post button and click
+            post_button = page.wait_for_selector('button[data-control-name="share.post"]')
+            if not post_button:
+                raise Exception("Could not find post button")
+            post_button.click()
+            
+            # Wait for post confirmation
+            page.wait_for_timeout(5000)  # Wait for post to complete
+            print("Posted to LinkedIn!")
+            
+        except Exception as e:
+            print(f"ERROR during LinkedIn automation: {str(e)}")
+            raise e
+        finally:
+            if 'browser' in locals():
+                browser.close()
+            # Clean up temp file if it was a download
+            if image_path and image_path.startswith(tempfile.gettempdir()):
+                try:
+                    os.remove(image_path)
+                except Exception:
+                    pass
 
 def main():
     creds = get_google_creds(scopes=['https://www.googleapis.com/auth/spreadsheets.readonly'])
