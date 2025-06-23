@@ -50,15 +50,11 @@ jobs:
           if-no-files-found: ignore
 
       - name: Install Node.js dependencies
-        run: |
-          cd build-in-public-agent-gha
-          npm install
+        run: npm install
 
       - name: Run LinkedIn Puppeteer Stealth automation
         env:
           LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL }}
           LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD }}
           POST_TEXT: ${{ secrets.POST_TEXT }}
-        run: |
-          cd build-in-public-agent-gha
-          npm start 
+        run: npm start 
