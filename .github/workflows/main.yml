@@ -25,14 +25,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run the automation script
+      - name: Install Playwright Browsers
+        run: python -m playwright install
+
+      - name: Run the LinkedIn Playwright automation
         env:
-          # These secrets are configured in your repository's settings.
           SHEET_ID: ${{ secrets.SHEET_ID }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
+          LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL }}
+          LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD }}
           LINKEDIN_JSESSIONID: ${{ secrets.LINKEDIN_JSESSIONID }}
-        run: python main.py 
+          POST_SLOT: ${{ secrets.POST_SLOT }}
+        run: python linkedin_playwright.py 
