@@ -85,7 +85,17 @@ def post_to_linkedin(text, image_path=None):
         sys.exit(1)
     with sync_playwright() as p:
         try:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--disable-gpu',
+                    '--window-size=1920,1080',
+                ]
+            )
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -94,61 +104,98 @@ def post_to_linkedin(text, image_path=None):
             print("Navigating to LinkedIn login page...")
             
             # Increase timeouts and add better error handling
-            page.set_default_timeout(60000)  # 60 seconds timeout
-            page.set_default_navigation_timeout(60000)
+            page.set_default_timeout(120000)  # 120 seconds timeout
+            page.set_default_navigation_timeout(120000)
             
             # Navigate to LinkedIn with retry logic
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    page.goto("https://www.linkedin.com/login", wait_until="networkidle")
+                    print(f"Attempt {attempt + 1} to load LinkedIn login page...")
+                    page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+                    page.wait_for_load_state("networkidle", timeout=30000)
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
                         raise Exception(f"Failed to load LinkedIn login page after {max_retries} attempts: {e}")
-                    print(f"Attempt {attempt + 1} failed, retrying...")
+                    print(f"Attempt {attempt + 1} failed, retrying in 5 seconds...")
                     page.wait_for_timeout(5000)  # Wait 5 seconds before retry
             
-            # Login with explicit waits
-            page.fill('input[name="session_key"]', LINKEDIN_EMAIL)
-            page.fill('input[name="session_password"]', LINKEDIN_PASSWORD)
-            page.click('button[type="submit"]')
+            # Login with explicit waits and null checks
+            print("Filling login credentials...")
+            email_input = page.wait_for_selector('input[name="session_key"]', state="visible", timeout=30000)
+            if not email_input:
+                raise Exception("Could not find email input field")
+            
+            password_input = page.wait_for_selector('input[name="session_password"]', state="visible", timeout=30000)
+            if not password_input:
+                raise Exception("Could not find password input field")
+            
+            submit_button = page.wait_for_selector('button[type="submit"]', state="visible", timeout=30000)
+            if not submit_button:
+                raise Exception("Could not find submit button")
+            
+            email_input.fill(LINKEDIN_EMAIL)
+            password_input.fill(LINKEDIN_PASSWORD)
+            submit_button.click()
             
             # Wait for navigation with explicit success criteria
             print("Waiting for successful login...")
             page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("networkidle", timeout=30000)
             
             print("Logged in. Starting post...")
-            page.click('button[aria-label="Start a post"]')
-            page.wait_for_selector('div[role="textbox"]', state="visible")
-            page.fill('div[role="textbox"]', text)
+            start_post_button = page.wait_for_selector('button[aria-label="Start a post"]', state="visible", timeout=30000)
+            if not start_post_button:
+                raise Exception("Could not find 'Start a post' button")
+            start_post_button.click()
+            
+            textbox = page.wait_for_selector('div[role="textbox"]', state="visible", timeout=30000)
+            if not textbox:
+                raise Exception("Could not find post text box")
+            textbox.fill(text)
             
             if image_path and os.path.exists(image_path):
                 print(f"Attaching image: {image_path}")
-                page.click('button[aria-label="Add a photo"]')
-                input_file = page.wait_for_selector('input[type="file"]')
+                photo_button = page.wait_for_selector('button[aria-label="Add a photo"]', state="visible", timeout=30000)
+                if not photo_button:
+                    raise Exception("Could not find 'Add a photo' button")
+                photo_button.click()
+                
+                input_file = page.wait_for_selector('input[type="file"]', state="visible", timeout=30000)
                 if not input_file:
                     raise Exception("Could not find file input element")
                 input_file.set_input_files(image_path)
-                # Wait for image upload
-                if not page.wait_for_selector('img[alt="Post image"]', timeout=30000):
+                
+                # Wait for image upload with progress indicator
+                print("Waiting for image upload...")
+                upload_complete = page.wait_for_selector('img[alt="Post image"]', state="visible", timeout=60000)
+                if not upload_complete:
                     raise Exception("Image upload failed - could not verify image presence")
             else:
                 print("No image attached.")
             
             # Wait for the post button and click
-            post_button = page.wait_for_selector('button[data-control-name="share.post"]')
+            print("Looking for post button...")
+            post_button = page.wait_for_selector('button[data-control-name="share.post"]', state="visible", timeout=30000)
             if not post_button:
                 raise Exception("Could not find post button")
             post_button.click()
             
             # Wait for post confirmation
-            page.wait_for_timeout(5000)  # Wait for post to complete
+            print("Waiting for post to complete...")
+            page.wait_for_timeout(10000)  # Wait longer for post to complete
             print("Posted to LinkedIn!")
             
         except Exception as e:
             print(f"ERROR during LinkedIn automation: {str(e)}")
+            if 'page' in locals():
+                print("Current URL:", page.url)
+                try:
+                    page.screenshot(path="error_screenshot.png")
+                    print("Error screenshot saved as error_screenshot.png")
+                except:
+                    pass
             raise e
         finally:
             if 'browser' in locals():
