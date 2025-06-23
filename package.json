@@ -9,6 +9,8 @@
     "puppeteer": "^21.3.8",
     "puppeteer-extra": "^3.4.3",
     "puppeteer-extra-plugin-stealth": "^2.11.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "googleapis": "^133.0.0",
+    "node-fetch": "^3.3.2"
   }
 } 
