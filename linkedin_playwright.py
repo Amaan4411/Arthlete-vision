@@ -7,6 +7,8 @@ from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.sync_api import sync_playwright
+import random
+import time
 
 # --- CONFIGURATION ---
 SHEET_ID = os.environ.get('SHEET_ID')
@@ -79,73 +81,116 @@ def get_image_path(image_cell):
     print(f"Image file '{local_path}' not found in images/. Posting text only.")
     return None
 
+def get_random_user_agent():
+    user_agents = [
+        # A few real Firefox/Chrome/Edge user agents
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/125.0.0.0 Chrome/125.0.0.0 Safari/537.36',
+    ]
+    return random.choice(user_agents)
+
+def get_random_viewport():
+    # Common screen sizes as tuples
+    sizes = [
+        (1920, 1080),
+        (1366, 768),
+        (1536, 864),
+        (1440, 900),
+        (1600, 900),
+    ]
+    return random.choice(sizes)
+
+def get_random_timezone():
+    timezones = [
+        'America/New_York', 'Europe/London', 'Europe/Paris', 'Asia/Kolkata', 'America/Los_Angeles'
+    ]
+    return random.choice(timezones)
+
+def get_random_geolocation():
+    # Some random big cities as tuples
+    locations = [
+        (40.7128, -74.0060),   # New York
+        (51.5074, -0.1278),    # London
+        (48.8566, 2.3522),     # Paris
+        (28.6139, 77.2090),    # Delhi
+        (34.0522, -118.2437),  # LA
+    ]
+    return random.choice(locations)
+
 def post_to_linkedin(text, image_path=None):
     if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
         print("ERROR: LINKEDIN_EMAIL and LINKEDIN_PASSWORD must be set in environment variables.")
         sys.exit(1)
     with sync_playwright() as p:
         try:
-            # Use Firefox instead of Chrome as it's less likely to trigger security checks
+            # Randomize stealth parameters
+            user_agent = get_random_user_agent()
+            viewport = get_random_viewport()
+            timezone = get_random_timezone()
+            geolocation = get_random_geolocation()
+            print(f"Using user-agent: {user_agent}")
+            print(f"Using viewport: {viewport}")
+            print(f"Using timezone: {timezone}")
+            print(f"Using geolocation: {geolocation}")
+
             browser = p.firefox.launch(
                 headless=True,
                 args=[
-                    '--width=1920',
-                    '--height=1080'
+                    f'--width={viewport[0]}',
+                    f'--height={viewport[1]}',
+                    '--disable-blink-features=AutomationControlled',
                 ]
             )
-            
-            # Set up a persistent context to maintain cookies
             context = browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+                viewport={"width": viewport[0], "height": viewport[1]},
+                user_agent=user_agent,
                 locale='en-US',
-                timezone_id='America/New_York',
-                geolocation={'latitude': 40.7128, 'longitude': -74.0060},
+                timezone_id=timezone,
+                geolocation={"latitude": geolocation[0], "longitude": geolocation[1]},
                 permissions=['geolocation'],
-                accept_downloads=True
+                accept_downloads=True,
             )
-            
-            # Enable more verbose logging
+            # Mask navigator.webdriver
+            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            # Mask languages
+            context.add_init_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})")
+            # Mask plugins
+            context.add_init_script("Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]})")
+            # Mask permissions
+            context.add_init_script("window.navigator.permissions.query = (p) => Promise.resolve({ state: 'granted' })")
             context.set_default_timeout(120000)
             context.set_default_navigation_timeout(120000)
-            
             page = context.new_page()
             print("Navigating to LinkedIn homepage first...")
-            
-            # Start with the homepage, then go to login
             page.goto("https://www.linkedin.com", wait_until="domcontentloaded")
             page.wait_for_load_state("networkidle", timeout=30000)
-            
             print("Going to login page...")
             page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
             page.wait_for_load_state("networkidle", timeout=30000)
-            
-            # Login with explicit waits and null checks
+            # Human-like mouse movement
+            page.mouse.move(random.randint(100, 500), random.randint(100, 500), steps=10)
             print("Filling login credentials...")
             email_input = page.wait_for_selector('input[name="session_key"]', state="visible", timeout=30000)
             if not email_input:
                 raise Exception("Could not find email input field")
-            
             password_input = page.wait_for_selector('input[name="session_password"]', state="visible", timeout=30000)
             if not password_input:
                 raise Exception("Could not find password input field")
-            
-            # Type slowly like a human
             print("Entering email...")
-            email_input.type(LINKEDIN_EMAIL, delay=100)
-            page.wait_for_timeout(1000)
-            
+            for c in LINKEDIN_EMAIL:
+                email_input.type(c, delay=random.randint(80, 180))
+            page.wait_for_timeout(random.randint(500, 1500))
             print("Entering password...")
-            password_input.type(LINKEDIN_PASSWORD, delay=100)
-            page.wait_for_timeout(1000)
-            
+            for c in LINKEDIN_PASSWORD:
+                password_input.type(c, delay=random.randint(80, 180))
+            page.wait_for_timeout(random.randint(500, 1500))
             print("Clicking sign in...")
             submit_button = page.wait_for_selector('button[type="submit"]', state="visible", timeout=30000)
             if not submit_button:
                 raise Exception("Could not find submit button")
             submit_button.click()
-            
-            # Wait for navigation with explicit success criteria
             print("Waiting for successful login...")
             try:
                 page.wait_for_url("https://www.linkedin.com/feed/", timeout=60000)
@@ -155,65 +200,52 @@ def post_to_linkedin(text, image_path=None):
                 if "checkpoint" in current_url or "challenge" in current_url:
                     raise Exception("LinkedIn security check detected. Please try logging in manually first.")
                 raise e
-            
             page.wait_for_load_state("networkidle", timeout=30000)
             print("Successfully logged in!")
-            
-            # Small delay before starting the post
-            page.wait_for_timeout(3000)
-            
+            # Human-like scrolling
+            for _ in range(random.randint(1, 3)):
+                page.mouse.wheel(0, random.randint(100, 400))
+                page.wait_for_timeout(random.randint(500, 1200))
+            page.wait_for_timeout(random.randint(2000, 4000))
             print("Looking for post button...")
             start_post_button = page.wait_for_selector('button[aria-label="Start a post"]', state="visible", timeout=30000)
             if not start_post_button:
                 raise Exception("Could not find 'Start a post' button")
             start_post_button.click()
-            
             print("Waiting for post dialog...")
             textbox = page.wait_for_selector('div[role="textbox"]', state="visible", timeout=30000)
             if not textbox:
                 raise Exception("Could not find post text box")
-            
-            # Type the text slowly like a human
             print("Typing post content...")
-            textbox.type(text, delay=50)
-            
+            for c in text:
+                textbox.type(c, delay=random.randint(40, 120))
+            page.wait_for_timeout(random.randint(1000, 2000))
             if image_path and os.path.exists(image_path):
                 print(f"Attaching image: {image_path}")
                 photo_button = page.wait_for_selector('button[aria-label="Add a photo"]', state="visible", timeout=30000)
                 if not photo_button:
                     raise Exception("Could not find 'Add a photo' button")
                 photo_button.click()
-                
                 input_file = page.wait_for_selector('input[type="file"]', state="visible", timeout=30000)
                 if not input_file:
                     raise Exception("Could not find file input element")
                 input_file.set_input_files(image_path)
-                
-                # Wait for image upload with progress indicator
                 print("Waiting for image upload...")
                 upload_complete = page.wait_for_selector('img[alt="Post image"]', state="visible", timeout=60000)
                 if not upload_complete:
                     raise Exception("Image upload failed - could not verify image presence")
             else:
                 print("No image to attach")
-            
-            # Wait before posting
-            page.wait_for_timeout(2000)
-            
-            # Look for the post button and click
+            page.wait_for_timeout(random.randint(1000, 2000))
             print("Looking for post button...")
             post_button = page.wait_for_selector('button[data-control-name="share.post"]', state="visible", timeout=30000)
             if not post_button:
                 raise Exception("Could not find post button")
-            
             print("Clicking post button...")
             post_button.click()
-            
-            # Wait for post confirmation
             print("Waiting for post to complete...")
-            page.wait_for_timeout(10000)
+            page.wait_for_timeout(random.randint(8000, 12000))
             print("Posted successfully to LinkedIn!")
-            
         except Exception as e:
             print(f"ERROR during LinkedIn automation: {str(e)}")
             if 'page' in locals():
@@ -228,7 +260,6 @@ def post_to_linkedin(text, image_path=None):
         finally:
             if 'browser' in locals():
                 browser.close()
-            # Clean up temp file if it was a download
             if image_path and image_path.startswith(tempfile.gettempdir()):
                 try:
                     os.remove(image_path)
